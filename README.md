@@ -37,9 +37,12 @@ Luego visita `http://localhost:3000`.
 | Grande    | 20     |
 | Mediano   | 50     |
 | Pequeño   | 100    |
+| Estrella fugaz | 150 |
 
 ## Características
 
 - 3 vidas con invencibilidad temporal al reaparecer (parpadeo)
 - Asteroides se parten en fragmentos más pequeños al ser destruidos
 - Partículas de explosión al destruir asteroides
+- Power-up de **velocidad**: al destruir asteroides puede aparecer un rayo celeste; tómalo para duplicar el empuje, la velocidad tope y la rotación durante 5 segundos (el HUD muestra el tiempo restante)
+- **Estrella fugaz**: asteroide dorado que aparece cada cierto tiempo, se mueve mucho más rápido que los normales y se desvanece con el tiempo. Al destruirla no se parte y otorga puntos extra
