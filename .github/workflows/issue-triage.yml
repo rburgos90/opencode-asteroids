@@ -6,7 +6,6 @@ on:
 
 jobs:
   triage:
-    if: contains(fromJSON('["OWNER", "MEMBER", "COLLABORATOR"]'), github.event.author_association)
     runs-on: ubuntu-latest
     permissions:
       id-token: write
