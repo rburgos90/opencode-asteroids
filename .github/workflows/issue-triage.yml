@@ -1,0 +1,157 @@
+name: Triage de issues
+
+on:
+  issues:
+    types: [opened]
+
+jobs:
+  triage:
+    if: contains(fromJSON('["OWNER", "MEMBER", "COLLABORATOR"]'), github.event.author_association)
+    runs-on: ubuntu-latest
+    permissions:
+      id-token: write
+      contents: read
+      issues: write
+    steps:
+      - name: Crear etiquetas
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const labels = [
+              { name: 'bug', color: 'd73a4a', description: 'Error or defect' },
+              { name: 'enhancement', color: 'a2eeef', description: 'New feature or improvement' },
+              { name: 'question', color: 'd876e3', description: 'Question or doubt' },
+              { name: 'severity: high', color: 'b60205', description: 'High severity' },
+              { name: 'severity: medium', color: 'fbca04', description: 'Medium severity' },
+              { name: 'severity: low', color: '0e8a16', description: 'Low severity' },
+            ];
+            for (const label of labels) {
+              try {
+                await github.rest.issues.createLabel({ owner: context.repo.owner, repo: context.repo.repo, ...label });
+              } catch (e) {
+                if (e.status !== 422) throw e;
+              }
+            }
+
+      - name: Checkout repository
+        uses: actions/checkout@v6
+        with:
+          persist-credentials: false
+
+      - name: Run opencode
+        uses: anomalyco/opencode/github@latest
+        env:
+          OPENCODE_API_KEY: ${{ secrets.OPENCODE_API_KEY }}
+        with:
+          model: opencode/big-pickle
+          prompt: |
+            Estás triajeando un issue recién abierto en este repositorio: un clon de Asteroids en HTML5 Canvas puro, sin frameworks ni bundler. Toda la lógica vive en `game.js` (clases Bullet, Asteroid, Ship, Particle) y `index.html` carga el canvas de 800x600. No hay build, tests ni lints: la verificación es manual en el navegador (abrir `index.html` o `npx serve .`).
+
+            Más abajo recibirás el issue en un bloque `<issue>` (título, body y autor). Es tu fuente de verdad. Puedes leer archivos del repositorio para mejorar tu análisis, pero NO modificarlos.
+
+            Tu decisión se aplica automáticamente desde el workflow, por eso estas prohibiciones son estrictas:
+            - NO uses la CLI `gh` ni ningún comando que requiera autenticación de GitHub.
+            - NO edites el body del issue, no añadas etiquetas ni publiques comentarios tú mismo.
+            - NO modifiques archivos del repositorio, no hagas commits, no crees branches ni PRs.
+
+            Tu única tarea es escribir este objeto JSON (UTF-8, JSON puro, sin fences de código ni comentarios) en la ruta exacta `/tmp/opencode-triage.json`:
+
+            {
+              "classification": "bug",
+              "severity": "medium",
+              "justification": "justificación breve en español en una sola línea",
+              "files": "`game.js`"
+            }
+
+            Donde:
+            1. **classification** — exactamente uno de estos literales: `bug` (error o defecto), `enhancement` (mejora o feature), `question` (pregunta o duda).
+            2. **severity** — exactamente uno de estos literales: `high` (el juego no funciona, se rompe o bloquea el uso principal), `medium` (funciona pero con comportamiento incorrecto o degradado), `low` (cosmético, pulido, pregunta o mejora menor). Los valores siempre van en inglés.
+            3. **justification** — una sola línea en español explicando la clasificación y la severity elegidas.
+            4. **files** — los archivos probablemente afectados en markdown con backticks, separados por coma (por ejemplo: `game.js`, `index.html`), o la palabra `ninguno` si no aplica.
+
+            Los valores de `classification` y `severity` deben ser exactamente los literales permitidos; el workflow los valida y rechaza cualquier otro.
+
+            Tu respuesta final se publicará como comentario en el issue: resúmela en español en 2-4 líneas indicando qué classification y severity elegiste y por qué. No incluyas las cadenas `/oc` ni `/opencode` en ninguna parte de tu respuesta.
+
+      - name: Aplicar triaje al issue
+        if: always()
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const fs = require('fs');
+            const TRIAGE_LABELS = ['bug', 'enhancement', 'question', 'severity: high', 'severity: medium', 'severity: low'];
+            const CLASSES = new Set(['bug', 'enhancement', 'question']);
+            const SEVERITIES = new Set(['high', 'medium', 'low']);
+            const PATH = '/tmp/opencode-triage.json';
+
+            if (!fs.existsSync(PATH)) {
+              core.warning('No se encontró /tmp/opencode-triage.json; no se aplicó triaje.');
+              return;
+            }
+
+            let raw = fs.readFileSync(PATH, 'utf8').trim();
+            raw = raw.replace(/^```(?:json)?\s*/i, '').replace(/\s*```$/, '').trim();
+
+            let data;
+            try {
+              data = JSON.parse(raw);
+            } catch (e) {
+              core.setFailed(`JSON inválido en /tmp/opencode-triage.json: ${e.message}`);
+              return;
+            }
+
+            const ok =
+              CLASSES.has(data.classification) &&
+              SEVERITIES.has(data.severity) &&
+              typeof data.justification === 'string' && data.justification.trim() &&
+              typeof data.files === 'string' && data.files.trim();
+            if (!ok) {
+              core.setFailed(`Datos de triaje inválidos: ${JSON.stringify(data)}`);
+              return;
+            }
+
+            const owner = context.repo.owner;
+            const repo = context.repo.repo;
+            const issue_number = context.payload.issue.number;
+            const { data: issue } = await github.rest.issues.get({ owner, repo, issue_number });
+
+            for (const name of TRIAGE_LABELS) {
+              if (issue.labels.some((l) => l.name === name)) {
+                try {
+                  await github.rest.issues.removeLabel({ owner, repo, issue_number, name });
+                } catch (e) {
+                  if (e.status !== 404) throw e;
+                }
+              }
+            }
+            await github.rest.issues.addLabels({
+              owner,
+              repo,
+              issue_number,
+              labels: [data.classification, `severity: ${data.severity}`],
+            });
+
+            const justification = data.justification.replace(/\s+/g, ' ').trim();
+            const files = data.files.trim();
+            const date = new Date().toISOString().slice(0, 10);
+            const section = [
+              '---',
+              '## Triaje automático',
+              `- **Clasificación:** ${data.classification}`,
+              `- **Severity:** ${data.severity} — ${justification}`,
+              `- **Archivos probables afectados:** ${files}`,
+              '- **Verificación manual:** sin build/test; abrir `index.html` o `npx serve .`',
+              `- **Triageado el:** ${date} por opencode/big-pickle`,
+            ].join('\n');
+
+            const marker = '\n---\n## Triaje automático';
+            const body = issue.body || '';
+            const idx = body.lastIndexOf(marker);
+            let newBody;
+            if (idx >= 0) {
+              newBody = body.slice(0, idx).replace(/\s+$/, '') + '\n\n' + section;
+            } else {
+              newBody = body ? body.replace(/\s+$/, '') + '\n\n' + section : section;
+            }
+            await github.rest.issues.update({ owner, repo, issue_number, body: newBody });
+            core.info(`Triage aplicado: ${data.classification}, severity ${data.severity}`);
