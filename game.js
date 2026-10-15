@@ -31,13 +31,18 @@ const randInt = (min, max) => Math.floor(rand(min, max + 1));
 
 // ── Skins de la nave ──────────────────────────────────────────────────────────
 const SKIN_STORAGE_KEY = 'asteroids.skin';
+const SHIP_VERTHS = [[20,0],[-12,-9],[-7,0],[-12,9]];
 const SKINS = [
-  { name: 'CLASICA', color: '#ffffff', flame: 'rgba(255,130,0,0.85)',  verts: [[20,0],[-12,-9],[-7,0],[-12,9]] },
-  { name: 'NEON',    color: '#38e0ff', flame: 'rgba(56,224,255,0.85)', verts: [[20,0],[-12,-9],[-7,0],[-12,9]] },
-  { name: 'DORADA',  color: '#ffd23f', flame: 'rgba(255,210,63,0.85)', verts: [[20,0],[-12,-9],[-7,0],[-12,9]] },
-  { name: 'ROJA',    color: '#ff4d4d', flame: 'rgba(255,90,60,0.85)',  verts: [[20,0],[-12,-9],[-7,0],[-12,9]] },
-  { name: 'MATRIX',  color: '#4dff88', flame: 'rgba(77,255,136,0.85)', verts: [[20,0],[-12,-9],[-7,0],[-12,9]] },
+  { name: 'CLASICA', color: '#ffffff', flame: 'rgba(255,130,0,0.85)',  scale: 1, score: 1, verts: SHIP_VERTHS },
+  { name: 'NEON',    color: '#38e0ff', flame: 'rgba(56,224,255,0.85)', scale: 1, score: 1, verts: SHIP_VERTHS },
+  { name: 'DORADA',  color: '#ffd23f', flame: 'rgba(255,210,63,0.85)', scale: 1, score: 1, verts: SHIP_VERTHS },
+  { name: 'ROJA',    color: '#ff4d4d', flame: 'rgba(255,90,60,0.85)',  scale: 1, score: 1, verts: SHIP_VERTHS },
+  { name: 'MATRIX',  color: '#4dff88', flame: 'rgba(77,255,136,0.85)', scale: 1, score: 1, verts: SHIP_VERTHS },
+  { name: 'MORADA',  color: '#b45cff', flame: 'rgba(180,92,255,0.85)', scale: 2, score: 2, verts: SHIP_VERTHS },
 ];
+
+function skinScale()          { return SKINS[skinIndex].scale || 1; }
+function skinScoreMultiplier() { return SKINS[skinIndex].score || 1; }
 
 let skinIndex = loadSkin();
 let skinMessage = 0; // segundos restantes mostrando el nombre de la skin
@@ -233,7 +238,7 @@ class Ship {
     this.angle  = -Math.PI / 2;
     this.vx     = 0;
     this.vy     = 0;
-    this.radius = 12;
+    this.radius = 12 * skinScale();
     this.thrusting     = false;
     this.invincible    = 3;
     this.shootCooldown = 0;
@@ -245,6 +250,7 @@ class Ship {
 
   update(dt) {
     if (this.dead) return;
+    this.radius = 12 * skinScale();
     if (this.invincible    > 0) this.invincible    -= dt;
     if (this.shootCooldown > 0) this.shootCooldown -= dt;
     if (this.speedBoost    > 0) this.speedBoost    -= dt;
@@ -274,7 +280,7 @@ class Ship {
   tryShoot() {
     if (this.shootCooldown > 0 || this.dead) return [];
     this.shootCooldown = 0.2;
-    const NOSE = 21;
+    const NOSE = 21 * skinScale();
     const ox = this.x + Math.cos(this.angle) * NOSE;
     const oy = this.y + Math.sin(this.angle) * NOSE;
     if (this.tripleShot > 0) {
@@ -296,6 +302,7 @@ class Ship {
     ctx.translate(this.x, this.y);
     ctx.rotate(this.angle);
     const skin = SKINS[skinIndex];
+    const scale = skinScale();
     ctx.strokeStyle = skin.color;
     ctx.lineWidth   = 1.5;
     ctx.lineJoin    = 'round';
@@ -307,16 +314,16 @@ class Ship {
     }
 
     // Silueta según la skin activa
-    traceShipPath(1);
+    traceShipPath(scale);
     ctx.stroke();
     ctx.shadowBlur = 0;
 
     // Llama del propulsor
     if (this.thrusting && Math.random() > 0.35) {
       ctx.beginPath();
-      ctx.moveTo(-8, -4);
-      ctx.lineTo(-8 - rand(6, 14), 0);
-      ctx.lineTo(-8,  4);
+      ctx.moveTo(-8 * scale, -4 * scale);
+      ctx.lineTo(-8 * scale - rand(6, 14) * scale, 0);
+      ctx.lineTo(-8 * scale,  4 * scale);
       ctx.strokeStyle = skin.flame;
       ctx.stroke();
     }
@@ -578,7 +585,7 @@ function update(dt) {
       if (!a.dead && !b.dead && dist(b, a) < a.radius) {
         b.dead = true;
         a.dead = true;
-        score += a.points;
+        score += a.points * skinScoreMultiplier();
         explode(a.x, a.y, a.size * 5);
         newAsteroids.push(...a.split());
         if (Math.random() < POWERUP_DROP_CHANCE)
@@ -631,7 +638,7 @@ function drawLifeIcon(x, y) {
   ctx.strokeStyle = SKINS[skinIndex].color;
   ctx.lineWidth   = 1.2;
   ctx.lineJoin    = 'round';
-  traceShipPath(0.45);
+  traceShipPath(0.45 * skinScale());
   ctx.stroke();
   ctx.restore();
 }
@@ -662,6 +669,11 @@ function drawHUD() {
   if (skinMessage > 0) {
     ctx.fillStyle = SKINS[skinIndex].color;
     ctx.fillText(`SKIN  ${SKINS[skinIndex].name}`, 14, hudY);
+    hudY += 22;
+  }
+  if (skinScoreMultiplier() > 1) {
+    ctx.fillStyle = SKINS[skinIndex].color;
+    ctx.fillText(`PUNTOS x${skinScoreMultiplier()}`, 14, hudY);
   }
   ctx.fillStyle = '#fff';
 
